@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/MoeForge/moego/base64"
 	"github.com/MoeForge/moego/ojson"
@@ -13,7 +14,7 @@ import (
 
 const (
 	pluginName          = "cpa-plugin-gemini"
-	pluginSchemaVersion = 1
+	pluginSchemaVersion = 6
 	nativeABIVersion    = 1
 )
 
@@ -25,10 +26,17 @@ var state = newPlugin()
 type plugin struct {
 	config    atomic.Pointer[config]
 	quiescing atomic.Bool
+	monitor   monitor
+	now       func() time.Time
+	startedAt time.Time
 }
 
 func newPlugin() *plugin {
-	p := &plugin{}
+	return newPluginWithClock(time.Now)
+}
+
+func newPluginWithClock(now func() time.Time) *plugin {
+	p := &plugin{now: now, startedAt: now().UTC()}
 	cfg := defaultConfig()
 	p.config.Store(&cfg)
 	return p
@@ -47,8 +55,10 @@ func (p *plugin) handle(method string, raw []byte) ([]byte, error) {
 		if version := root.Get("schema_version"); version.Exists() {
 			parsed, errVersion := strconv.ParseUint(version.Raw, 10, 32)
 			if version.Type != ojson.Number || errVersion != nil || parsed < pluginSchemaVersion {
-				return nil, fmt.Errorf("host RPC schema version 1 or newer is required")
+				return nil, fmt.Errorf("host RPC schema version %d or newer is required", pluginSchemaVersion)
 			}
+		} else {
+			return nil, fmt.Errorf("host RPC schema version %d or newer is required", pluginSchemaVersion)
 		}
 		configYAML, errConfig := decodeBytes(root.Get("config_yaml"))
 		if errConfig != nil {
@@ -68,38 +78,73 @@ func (p *plugin) handle(method string, raw []byte) ([]byte, error) {
 		if errRoot != nil {
 			return nil, errRoot
 		}
-		cfg := p.config.Load()
-		if p.quiescing.Load() || !cfg.Enabled || cfg.Mode == modeOff ||
-			!strings.EqualFold(strings.TrimSpace(root.Get("ToFormat").String()), "antigravity") ||
-			!cfg.matchesModel(root.Get("Model").String()) {
-			return response.Bytes(), nil
+		if errNormalize := p.normalize(response, root); errNormalize != nil {
+			return nil, errNormalize
 		}
-		body, errBody := decodeBytes(root.Get("Body"))
-		if errBody != nil {
-			return nil, fmt.Errorf("Body must be Base64-encoded bytes")
+	case "management.register":
+		if errSet := response.Set("result.Resources", []map[string]string{
+			{"Path": "/ui", "Menu": "Antigravity 搬移监控", "Description": "处理、搬移、跳过计数及当前生效配置"},
+			{"Path": "/status"},
+		}); errSet != nil {
+			return nil, fmt.Errorf("register monitor resources: %w", errSet)
 		}
-		if !ojson.ValidBytes(body) || !uniqueObject(ojson.ParseBytes(body)) {
-			return response.Bytes(), nil
-		}
-		doc := ojson.NewDoc(body)
-		result, errRelocate := relocateDoc(doc, cfg)
-		if errRelocate != nil {
-			return nil, errRelocate
-		}
-		if result.changed {
-			if errSet := response.Set("result.Body", base64.StdEncoding.EncodeToString(doc.Bytes())); errSet != nil {
-				return nil, fmt.Errorf("encode normalized payload: %w", errSet)
-			}
-			if cfg.Debug {
-				log.WithFields(log.Fields{"plugin": pluginName, "system_chars": result.chars, "reason": result.reason}).Info("system content relocated")
-			}
-		}
+	case "management.handle":
+		return p.management(raw)
 	case "plugin.quiesce", "plugin.shutdown":
 		p.quiescing.Store(true)
 	default:
 		return nil, fmt.Errorf("unsupported plugin method")
 	}
 	return response.Bytes(), nil
+}
+
+func (p *plugin) normalize(response *ojson.Doc, root ojson.Result) error {
+	if !strings.EqualFold(strings.TrimSpace(root.Get("ToFormat").String()), "antigravity") {
+		return nil
+	}
+	skip, moved := skipNoChange, ""
+	defer func() { p.monitor.record(p.now(), moved, skip) }()
+	cfg := p.config.Load()
+	switch {
+	case p.quiescing.Load():
+		skip = skipQuiescing
+		return nil
+	case !cfg.Enabled:
+		skip = skipDisabled
+		return nil
+	case cfg.Mode == modeOff:
+		skip = skipModeOff
+		return nil
+	case !cfg.matchesModel(root.Get("Model").String()):
+		skip = skipModelFiltered
+		return nil
+	}
+	body, errBody := decodeBytes(root.Get("Body"))
+	if errBody != nil {
+		skip = skipInvalidBody
+		return fmt.Errorf("Body must be Base64-encoded bytes")
+	}
+	if !ojson.ValidBytes(body) || !uniqueObject(ojson.ParseBytes(body)) {
+		skip = skipInvalidBody
+		return nil
+	}
+	doc := ojson.NewDoc(body)
+	result, errRelocate := relocateDoc(doc, cfg)
+	if errRelocate != nil {
+		skip = skipError
+		return errRelocate
+	}
+	if result.changed {
+		if errSet := response.Set("result.Body", base64.StdEncoding.EncodeToString(doc.Bytes())); errSet != nil {
+			skip = skipError
+			return fmt.Errorf("encode normalized payload: %w", errSet)
+		}
+		moved = result.reason
+		if cfg.Debug {
+			log.WithFields(log.Fields{"plugin": pluginName, "system_chars": result.chars, "reason": result.reason}).Info("system content relocated")
+		}
+	}
+	return nil
 }
 
 func rpcObject(raw []byte) (ojson.Result, error) {
@@ -141,6 +186,7 @@ func register(doc *ojson.Doc) error {
 			{"Name": "debug", "Type": "boolean", "Default": false, "Description": "记录搬移结果、字符数和触发原因，不记录提示词、请求正文或触发词。"},
 		}},
 		{"result.capabilities.request_normalizer", true},
+		{"result.capabilities.management_api", true},
 	}
 	for _, item := range values {
 		if errSet := doc.Set(item.path, item.value); errSet != nil {

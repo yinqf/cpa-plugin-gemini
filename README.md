@@ -9,13 +9,14 @@ through unchanged, even when their model names are identical.
 
 ## Integration
 
-The plugin declares only `request_normalizer` and implements `request.normalize`.
+The plugin declares `request_normalizer` and `management_api`, implementing
+`request.normalize` plus read-only monitor resources.
 CPA translates the client protocol first; this plugin then processes
 `request.systemInstruction.parts` and `request.contents` in the translated
 Antigravity envelope. OpenAI Chat, Responses, Claude Messages, Gemini, and
 Interactions entry protocols use the same normalization path when CPA supports
 their translation. No CPA source changes or upstream credentials are required by
-the plugin. The native C ABI version is 1 and the stable JSON RPC schema is 1;
+the plugin. The native C ABI version is 1 and the JSON RPC schema is 6;
 the plugin implements that small wire contract directly instead of linking a
 copy of the CPA server or depending on its Go module version.
 
@@ -59,6 +60,38 @@ relocated. Empty model/mode fields restore their defaults. `enabled` and
 `priority` are standard CPA plugin controls. Changes apply via CPA's existing
 plugin configuration/reload mechanism.
 
+## Monitoring
+
+Open **Antigravity 搬移监控** in CPA's plugin resource menu, or visit:
+
+```text
+/v0/resource/plugins/cpa-plugin-gemini/ui
+/v0/resource/plugins/cpa-plugin-gemini/status
+```
+
+The page shows processed, relocated, and skipped counts, reason breakdowns,
+effective configuration, version, and uptime. It refreshes every five seconds by
+default, supports manual refresh and disabling polling, pauses while hidden, and
+retains the last successful snapshot on errors. Appearance follows the host CPA
+panel when embedded; standalone light, white, dark, and automatic modes are
+available. The page is embedded in the native library and needs no external CDN.
+
+Counters include **completed Antigravity normalizer callbacks only**. Other
+providers, resource requests, and malformed RPC messages that cannot identify a
+target are excluded. Processed always equals relocated plus skipped; skipped
+includes filtered, disabled/off, unsupported, invalid-body, and error cases.
+Retries or repeated transformations can contribute multiple callbacks, so these
+are not unique client-request or billing counters. Configuration reconfiguration
+retains counters; a fresh plugin instance or CPA restart starts at zero. No reset
+or configuration-write endpoint is provided.
+
+The state retains only aggregate counters and timestamps. Responses never include
+request bodies, prompts, observed model selections, accounts, API keys, headers,
+or request IDs. Custom trigger words are represented by a count, not their text.
+Resource routes follow CPA's existing unauthenticated plugin-resource contract;
+only the safe configuration view is exposed. RPC schema 6+ is required so the host
+preserves JSON strings such as configured model patterns without HTML escaping.
+
 ## Payload behavior and boundaries
 
 - Original text parts and supported cache metadata are copied as raw JSON into
@@ -88,7 +121,8 @@ plugin configuration/reload mechanism.
 
 ## Build and test
 
-Go 1.26+ and a C compiler are required for native builds. No network calls to an
+Go 1.26+ and a C compiler are required for native builds; Node.js 18+ runs
+the dependency-free monitor interaction tests. No network calls to an
 upstream model are made by the tests or the native smoke test.
 
 ```sh
@@ -96,6 +130,7 @@ gofmt -w .
 go vet ./...
 go test -race ./...
 python3 -m unittest discover -s scripts -p 'test_release_version.py' -v
+node --test scripts/test_monitor_ui.cjs
 mkdir -p build
 CGO_ENABLED=1 go build -buildmode=c-shared -o build/cpa-plugin-gemini.so .
 python3 scripts/smoke_native.py build/cpa-plugin-gemini.so
@@ -105,8 +140,9 @@ On macOS, use `.dylib` in the last two commands. Build on the operating system
 and architecture of the CPA process; changing the extension does not cross-build
 the library. Tests cover target isolation, the translated payload contract for
 multiple entry protocols, text/media/tool preservation, integer precision,
-Unicode thresholds, malformed data, configuration reload, concurrency, repeated
-normalization, lifecycle, and native buffer validation. They do not assert live
+Unicode thresholds, malformed data, configuration reload, concurrent counter
+snapshots, resource privacy, polling interactions, repeated normalization,
+lifecycle, and native buffer validation. They do not assert live
 provider behavior or re-test CPA's protocol translators.
 
 ## Install and release

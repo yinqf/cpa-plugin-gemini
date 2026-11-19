@@ -46,6 +46,8 @@ jobs:
       - name: Test release version selection
         if: hashFiles('scripts/test_release_version.py') != ''
         run: python -m unittest discover -s scripts -p 'test_release_version.py' -v
+      - name: Test monitor interactions
+        run: node --test scripts/test_monitor_ui.cjs
       - name: Select release version
         id: version
         shell: bash
@@ -111,6 +113,8 @@ jobs:
           generate_release_notes: true
           body: |
             Linux amd64 native plugin only. Drain active requests, extract and replace `cpa-plugin-gemini.so`, then reload the plugin or restart CPA.
+
+            Requires CPA plugin RPC schema 6 or newer. Open **Antigravity 搬移监控** in the plugin resource menu, or visit `/v0/resource/plugins/cpa-plugin-gemini/ui`. The read-only monitor exposes aggregate counters and effective configuration; request content and trigger word text are never returned.
 
             SHA-256 checksums are attached in `checksums.txt`. See the [Chinese README](${{ github.server_url }}/${{ github.repository }}/blob/${{ steps.version.outputs.tag }}/README_CN.md) for configuration and host boundaries.
           fail_on_unmatched_files: true

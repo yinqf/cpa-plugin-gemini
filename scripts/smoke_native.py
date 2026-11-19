@@ -63,14 +63,31 @@ def main():
 
     registration = invoke("plugin.register", {"schema_version": 10})
     assert registration["metadata"]["Name"] == "cpa-plugin-gemini"
-    assert registration["schema_version"] == 1
-    assert registration["capabilities"] == {"request_normalizer": True}
+    assert registration["schema_version"] == 6
+    assert registration["capabilities"] == {"request_normalizer": True, "management_api": True}
     if args.expected_version:
         assert registration["metadata"]["Version"] == args.expected_version
     fields = {field["Name"]: field for field in registration["metadata"]["ConfigFields"]}
     assert fields["mode"]["Default"] == "auto"
     assert fields["keep_max_chars"]["Default"] == 2000
     assert fields["keep_max_chars"]["Type"] == "integer"
+
+    resources = invoke("management.register", {})["Resources"]
+    assert [resource["Path"] for resource in resources] == ["/ui", "/status"]
+    assert resources[0]["Menu"]
+
+    def resource(path, method="GET"):
+        result = invoke("management.handle", {"Method": method, "Path": path})
+        assert result["Headers"]["Cache-Control"] == ["no-store"]
+        return result, base64.b64decode(result["Body"])
+
+    page, html = resource("/ui")
+    assert page["StatusCode"] == 200 and "System 搬移监控" in html.decode()
+    assert b"data-monitor" in html
+    initial = json.loads(resource("/status")[1])
+    assert (initial["processed"], initial["relocated"], initial["skipped"]) == (0, 0, 0)
+    assert initial["config"]["keep_max_chars"] == 2000
+    assert "trigger_words" not in initial["config"]
 
     def configure(config):
         return invoke("plugin.reconfigure", {
@@ -106,7 +123,7 @@ def main():
     assert moved["request"]["contents"][0]["parts"][0]["text"] == "Rule"
     assert moved["request"]["contents"][1]["parts"][0]["text"] == "History"
 
-    invoke("plugin.reconfigure", {"config_yaml": base64.b64encode(b"mode: unknown").decode()}, ok=False)
+    invoke("plugin.reconfigure", {"schema_version": 10, "config_yaml": base64.b64encode(b"mode: unknown").decode()}, ok=False)
     assert normalize().get("Body"), "failed reconfiguration replaced active configuration"
     configure("mode: off\n")
     assert normalize() == {}
@@ -131,7 +148,15 @@ def main():
     api.free_buffer(None, 0)
     api.shutdown()
     assert normalize() == {}
-    print("Native ABI smoke passed: registration, provider isolation, relocation, precision, lifecycle, and invalid buffers.")
+    final = json.loads(resource("/v0/resource/plugins/cpa-plugin-gemini/status")[1])
+    assert (final["processed"], final["relocated"], final["skipped"]) == (28, 12, 16), final
+    assert final["quiescing"] and final["config"]["mode"] == "always"
+    assert final["skip_reasons"]["quiescing"] == 2
+    assert final["version"] == registration["metadata"]["Version"]
+    assert not any(secret in json.dumps(final) for secret in ("Keep answers concise.", "Hello", "History"))
+    assert resource("/status", "POST")[0]["StatusCode"] == 405
+    assert resource("/missing")[0]["StatusCode"] == 404
+    print("Native ABI smoke passed: registration, provider isolation, relocation, precision, lifecycle, invalid buffers, monitor resources, and counters.")
 
 
 if __name__ == "__main__":

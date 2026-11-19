@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Antigravity 搬移监控 · CPA</title>
+  <script>
+    const monitorTheme = (() => {
+      const root = document.documentElement;
+      root.toggleAttribute('data-cpa-embedded', window.parent !== window);
+      const key = 'cpa-plugin-gemini-appearance';
+      const themes = new Set(['auto', 'light', 'white', 'dark']);
+      const system = window.matchMedia('(prefers-color-scheme: dark)');
+      let selected = 'auto';
+      let host = null;
+      const tokens = [
+        '--bg-primary', '--bg-secondary', '--bg-tertiary', '--bg-hover',
+        '--text-primary', '--text-secondary', '--text-tertiary',
+        '--border-color', '--border-hover', '--primary-color', '--primary-hover',
+        '--primary-active', '--primary-contrast', '--shadow',
+        '--success-badge-bg', '--success-badge-text', '--success-badge-border',
+        '--failure-badge-bg', '--failure-badge-text', '--failure-badge-border',
+        '--amber-text', '--amber-10', '--amber-30',
+        '--app-radius-md', '--app-radius-sm', '--app-input-bg'
+      ];
+      function readPreference() {
+        try {
+          const saved = localStorage.getItem(key);
+          selected = themes.has(saved) ? saved : 'auto';
+        } catch {}
+      }
+      function apply() {
+        if (host) {
+          const theme = host.getAttribute('data-theme');
+          root.dataset.theme = theme === 'dark' || theme === 'white' ? theme : 'light';
+          const style = window.parent.getComputedStyle(host);
+          for (const token of tokens) {
+            const value = style.getPropertyValue(token).trim();
+            if (value) root.style.setProperty(token, value);
+            else root.style.removeProperty(token);
+          }
+          root.style.setProperty('--monitor-font', window.parent.getComputedStyle(host.ownerDocument.body || host).fontFamily);
+          return;
+        }
+        let theme = selected;
+        if (theme === 'auto') {
+          try {
+            const saved = JSON.parse(localStorage.getItem('cli-proxy-theme'))?.state?.theme;
+            if (themes.has(saved)) theme = saved;
+          } catch {}
+        }
+        root.dataset.theme = theme === 'auto' ? (system.matches ? 'dark' : 'white') : theme;
+      }
+      try {
+        if (window.parent !== window) {
+          const candidate = window.parent.document.documentElement;
+          if (window.parent.getComputedStyle(candidate).getPropertyValue('--bg-secondary').trim()) host = candidate;
+        }
+      } catch {}
+      readPreference();
+      apply();
+      if (host) {
+        const observer = new MutationObserver(apply);
+        const observe = () => {
+          observer.observe(host, { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] });
+          apply();
+        };
+        observe();
+        window.addEventListener('pagehide', () => observer.disconnect());
+        window.addEventListener('pageshow', observe);
+      } else {
+        system.addEventListener('change', apply);
+        window.addEventListener('storage', event => {
+          if (event.key === key || event.key === 'cli-proxy-theme' || event.key === null) {
+            readPreference();
+            apply();
+          }
+        });
+      }
+      return {
+        embedded: Boolean(host),
+        get: () => selected,
+        set: value => {
+          if (!themes.has(value)) return;
+          selected = value;
+          try { localStorage.setItem(key, value); } catch {}
+          apply();
+        }
+      };
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --monitor-bg: var(--bg-secondary, #faf9f5);
+      --monitor-panel: var(--bg-primary, #fffefa);
+      --monitor-subtle: var(--bg-tertiary, #f0eee8);
+      --monitor-text: var(--text-primary, #2d2a26);
+      --monitor-muted: var(--text-secondary, #746f67);
+      --monitor-border: var(--border-color, #e3e1db);
+      --monitor-hover: var(--bg-hover, #eeece5);
+      --monitor-good: var(--success-badge-text, #176747);
+      --monitor-good-bg: var(--success-badge-bg, #e8f3eb);
+      --monitor-warn: var(--amber-text, #925b15);
+      --monitor-warn-bg: var(--amber-10, #fcf1de);
+      --monitor-bad: var(--failure-badge-text, #a13f36);
+      --monitor-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+    }
+    :root[data-theme='white'] { --monitor-bg: var(--bg-secondary, #fff); --monitor-panel: var(--bg-primary, #fff); --monitor-subtle: var(--bg-tertiary, #f7f7f6); }
+    :root[data-theme='dark'] {
+      color-scheme: dark;
+      --monitor-bg: var(--bg-secondary, #151412);
+      --monitor-panel: var(--bg-primary, #1e1c19);
+      --monitor-subtle: var(--bg-tertiary, #292621);
+      --monitor-text: var(--text-primary, #f3f1ec);
+      --monitor-muted: var(--text-secondary, #c3bcb1);
+      --monitor-border: var(--border-color, #39352f);
+      --monitor-hover: var(--bg-hover, #302c26);
+      --monitor-good: var(--success-badge-text, #8ed0a4);
+      --monitor-good-bg: var(--success-badge-bg, #193025);
+      --monitor-warn: var(--amber-text, #e5bd75);
+      --monitor-warn-bg: var(--amber-10, #352b1b);
+      --monitor-bad: var(--failure-badge-text, #f0a097);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--monitor-bg); color: var(--monitor-text); font: 14px/1.6 var(--monitor-font); }
+    main { max-width: 1140px; margin: 0 auto; padding: 38px 32px 24px; }
+    header, .toolbar, .heading-row, .panel-heading, footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    header { align-items: flex-start; margin-bottom: 28px; }
+    .eyebrow { color: var(--monitor-muted); font-size: 11px; letter-spacing: .13em; font-weight: 650; }
+    h1 { margin: 6px 0 6px; font-size: 28px; line-height: 1.3; letter-spacing: -.03em; font-weight: 650; }
+    h2 { margin: 0; font-size: 15px; font-weight: 650; }
+    p { margin: 0; }
+    .muted, .description, footer { color: var(--monitor-muted); }
+    .badge { display: inline-flex; gap: 7px; align-items: center; border-radius: 100px; padding: 5px 11px; font-size: 12px; background: var(--monitor-subtle); white-space: nowrap; }
+    .badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .badge[data-state='active'] { color: var(--monitor-good); background: var(--monitor-good-bg); }
+    .badge[data-state='paused'] { color: var(--monitor-warn); background: var(--monitor-warn-bg); }
+    .toolbar { justify-content: flex-end; flex-wrap: wrap; margin: 0 0 18px; }
+    label { display: inline-flex; align-items: center; gap: 8px; color: var(--monitor-muted); font-size: 12px; }
+    select, button { font: inherit; font-size: 12px; color: var(--monitor-text); border: 1px solid var(--monitor-border); border-radius: 8px; background: var(--monitor-panel); min-height: 36px; padding: 6px 11px; }
+    select { max-width: 150px; }
+    button { cursor: pointer; transition: transform 140ms cubic-bezier(.23,1,.32,1); }
+    button:not(:focus-visible):active { transform: scale(.97); }
+    button:disabled { cursor: default; opacity: .55; }
+    button:focus-visible, select:focus-visible { outline: 2px solid var(--monitor-text); outline-offset: 3px; }
+    @media (hover: hover) and (pointer: fine) { button:not(:disabled):hover { background: var(--monitor-hover); } }
+    .summary { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
+    .metric, .panel { border: 1px solid var(--monitor-border); border-radius: 12px; background: var(--monitor-panel); }
+    .metric { padding: 23px 24px 20px; }
+    .metric-label { display: flex; align-items: center; gap: 8px; color: var(--monitor-muted); font-size: 13px; }
+    .metric-label::before { content: ''; width: 7px; height: 7px; border-radius: 2px; background: var(--monitor-muted); }
+    .metric.relocated .metric-label::before { background: var(--monitor-good); }
+    .metric-value { font-variant-numeric: tabular-nums; font-size: 38px; line-height: 1.25; letter-spacing: -.035em; font-weight: 600; margin: 13px 0 5px; overflow-wrap: anywhere; }
+    .metric-note { font-size: 12px; color: var(--monitor-muted); }
+    .counting-note { font-size: 12px; color: var(--monitor-muted); margin: 13px 0 24px; }
+    .content-grid { display: grid; grid-template-columns: minmax(0,1.13fr) minmax(0,1fr); gap: 20px; align-items: start; }
+    .panel { padding: 22px 24px; min-width: 0; }
+    .panel-heading { margin-bottom: 16px; gap: 8px; flex-wrap: wrap; }
+    .read-only { font-size: 11px; color: var(--monitor-muted); border: 1px solid var(--monitor-border); border-radius: 5px; padding: 1px 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 11px 0; border-bottom: 1px solid var(--monitor-border); vertical-align: top; }
+    th { width: 36%; text-align: left; color: var(--monitor-muted); font-weight: 400; padding-right: 16px; }
+    td { overflow-wrap: anywhere; white-space: pre-wrap; }
+    tr:last-child th, tr:last-child td { border: 0; padding-bottom: 2px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .reasons + .reasons { border-top: 1px solid var(--monitor-border); margin-top: 18px; padding-top: 18px; }
+    .reasons h3 { font-size: 12px; font-weight: 500; color: var(--monitor-muted); margin: 0 0 10px; }
+    .reason-row { display: flex; justify-content: space-between; gap: 16px; padding: 5px 0; font-size: 13px; }
+    .reason-row span:last-child { font-variant-numeric: tabular-nums; color: var(--monitor-muted); }
+    .privacy { display: flex; gap: 8px; color: var(--monitor-muted); font-size: 12px; margin-top: 20px; }
+    .privacy svg { flex-shrink: 0; margin-top: 3px; }
+    .error { color: var(--monitor-bad); background: var(--monitor-panel); border: 1px solid var(--monitor-border); padding: 12px 16px; border-radius: 8px; margin-bottom: 18px; font-size: 13px; }
+    [hidden] { display: none !important; }
+    footer { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--monitor-border); font-size: 11px; align-items: flex-start; flex-wrap: wrap; }
+    .footer-details { display: flex; gap: 16px; flex-wrap: wrap; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+    @media (max-width: 760px) { main { padding: 24px 18px; } .content-grid { grid-template-columns: 1fr; } .summary { gap: 10px; } .metric { padding: 17px 14px; } .metric-value { font-size: 30px; } header { margin-bottom: 22px; } .toolbar { justify-content: flex-start; } }
+    @media (max-width: 420px) { h1 { font-size: 23px; } .metric-label { font-size: 12px; } .metric-label::before { display: none; } .metric-note { font-size: 11px; } .metric-value { font-size: 26px; } .panel { padding: 20px; } }
+    @media (prefers-reduced-motion: reduce) { button { transition: none; } button:not(:focus-visible):active { transform: none; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div><div class="eyebrow">CPA PLUGIN / ANTIGRAVITY</div><h1>System 搬移监控</h1><p class="description">查看处理结果与当前生效配置。</p></div>
+    <span id="state" class="badge">等待数据</span>
+  </header>
+  <div class="toolbar">
+    <label>外观<select id="appearance" aria-label="外观"><option value="auto">自动</option><option value="light">羊毛纸</option><option value="white">纯白</option><option value="dark">暗色</option></select></label>
+    <label>自动刷新<select id="interval" aria-label="自动刷新"><option value="5000">每 5 秒</option><option value="10000">每 10 秒</option><option value="30000">每 30 秒</option><option value="0">关闭</option></select></label>
+    <button id="refresh" type="button">立即刷新</button>
+  </div>
+  <div id="error" class="error" role="alert" hidden>刷新失败，已保留上次数据。请稍后重试。</div>
+  <section class="summary" aria-label="累计计数">
+    <article class="metric"><div class="metric-label">处理次数</div><div id="processed" class="metric-value">—</div><p class="metric-note">Antigravity 回调累计</p></article>
+    <article class="metric relocated"><div class="metric-label">搬移次数</div><div id="relocated" class="metric-value">—</div><p class="metric-note">成功搬移 system 内容</p></article>
+    <article class="metric"><div class="metric-label">跳过次数</div><div id="skipped" class="metric-value">—</div><p class="metric-note">请求保持原样</p></article>
+  </section>
+  <p class="counting-note">处理 = 搬移 + 跳过。按已完成的 normalizer 回调统计，重试可能重复计数；配置重载保留计数，实例重建或进程重启后归零。</p>
+  <div class="content-grid">
+    <section class="panel" aria-labelledby="config-heading">
+      <div class="panel-heading"><h2 id="config-heading">当前生效配置</h2><span class="read-only">只读</span></div>
+      <table><caption class="sr-only">插件当前实际使用的配置</caption><tbody>
+        <tr><th scope="row">处理范围</th><td>Antigravity</td></tr>
+        <tr><th scope="row">插件启用</th><td id="config-enabled">—</td></tr>
+        <tr><th scope="row">工作模式</th><td id="config-mode">—</td></tr>
+        <tr><th scope="row">模型过滤</th><td><code id="config-models">—</code></td></tr>
+        <tr><th scope="row">长度阈值</th><td id="config-threshold">—</td></tr>
+        <tr><th scope="row">自定义触发词</th><td id="config-triggers">—</td></tr>
+        <tr><th scope="row">调试日志</th><td id="config-debug">—</td></tr>
+        <tr><th scope="row">插件优先级</th><td id="config-priority">—</td></tr>
+      </tbody></table>
+    </section>
+    <section class="panel" aria-labelledby="reason-heading">
+      <div class="panel-heading"><h2 id="reason-heading">处理结果分布</h2><span id="relocation-rate" class="muted">—</span></div>
+      <div class="reasons"><h3>搬移原因</h3>
+        <div class="reason-row"><span>达到长度阈值</span><span id="move-length">—</span></div>
+        <div class="reason-row"><span>命中自定义触发词</span><span id="move-trigger">—</span></div>
+        <div class="reason-row"><span>Always 模式</span><span id="move-always">—</span></div>
+      </div>
+      <div class="reasons"><h3>跳过原因</h3>
+        <div class="reason-row"><span>无可搬移内容或未达条件</span><span id="skip-no_change">—</span></div>
+        <div class="reason-row"><span>模型过滤</span><span id="skip-model_filtered">—</span></div>
+        <div class="reason-row"><span>Off 模式</span><span id="skip-mode_off">—</span></div>
+        <div class="reason-row"><span>插件未启用 / 已停止</span><span id="skip-inactive">—</span></div>
+        <div class="reason-row"><span>无效请求体</span><span id="skip-invalid_body">—</span></div>
+        <div class="reason-row"><span>处理异常</span><span id="skip-error">—</span></div>
+      </div>
+    </section>
+  </div>
+  <p class="privacy"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span>仅保留累计计数。不记录或返回请求正文、提示词、账户及 API Key；触发词只显示数量。</span></p>
+  <footer><div class="footer-details"><span id="version">cpa-plugin-gemini</span><span id="uptime">运行时间 —</span><span id="started">启动于 —</span></div><span id="updated" role="status" aria-live="polite">等待首次刷新</span></footer>
+</main>
+<script data-monitor>
+(() => {
+  'use strict';
+  const byId = id => document.getElementById(id);
+  const text = (id, value) => { byId(id).textContent = String(value); };
+  const number = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+  const format = value => new Intl.NumberFormat('zh-CN').format(number(value));
+  const time = value => {
+    const date = new Date(value);
+    return value && Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'medium' }).format(date) : '—';
+  };
+  const duration = seconds => {
+    seconds = Math.floor(number(seconds));
+    if (seconds >= 86400) return Math.floor(seconds / 86400) + ' 天 ' + Math.floor(seconds % 86400 / 3600) + ' 小时';
+    if (seconds >= 3600) return Math.floor(seconds / 3600) + ' 小时 ' + Math.floor(seconds % 3600 / 60) + ' 分钟';
+    return seconds >= 60 ? Math.floor(seconds / 60) + ' 分钟' : seconds + ' 秒';
+  };
+  function render(data) {
+    if (!data || data.scope !== 'antigravity' || !data.config || !Number.isFinite(data.processed) || !Number.isFinite(data.relocated) || !Number.isFinite(data.skipped)) throw new Error('Invalid status');
+    const cfg = data.config;
+    for (const key of ['processed', 'relocated', 'skipped']) text(key, format(data[key]));
+    const active = cfg.enabled && cfg.mode !== 'off' && !data.quiescing;
+    text('state', data.quiescing ? '已停止' : active ? '运行中' : '已暂停');
+    byId('state').dataset.state = active ? 'active' : 'paused';
+    text('config-enabled', cfg.enabled ? '已启用' : '未启用');
+    text('config-mode', ({ auto: 'Auto · 按条件搬移', always: 'Always · 搬移所有可处理文本', off: 'Off · 关闭搬移' })[cfg.mode] || '未知');
+    text('config-models', cfg.models || '*');
+    text('config-threshold', number(cfg.keep_max_chars) === 0 ? '关闭长度触发' : format(cfg.keep_max_chars) + ' 个字符');
+    text('config-triggers', format(cfg.trigger_word_count) + ' 条 · 不展示原文');
+    text('config-debug', cfg.debug ? '已开启' : '未开启');
+    text('config-priority', Number.isFinite(cfg.priority) ? cfg.priority : 0);
+    const moved = data.move_reasons || {};
+    const skipped = data.skip_reasons || {};
+    for (const key of ['length', 'trigger', 'always']) text('move-' + key, format(moved[key]));
+    for (const key of ['no_change', 'model_filtered', 'mode_off', 'invalid_body', 'error']) text('skip-' + key, format(skipped[key]));
+    text('skip-inactive', format(number(skipped.disabled) + number(skipped.quiescing)));
+    text('relocation-rate', data.processed > 0 ? '搬移率 ' + (data.relocated / data.processed * 100).toFixed(1) + '%' : '尚无处理记录');
+    text('version', 'cpa-plugin-gemini · ' + (data.version || '—'));
+    text('uptime', '运行 ' + duration(data.uptime_seconds));
+    text('started', '启动于 ' + time(data.started_at));
+    text('updated', '更新于 ' + time(data.observed_at));
+  }
+  const statusURL = new URL(window.location.href);
+  statusURL.pathname = statusURL.pathname.replace(/\/ui\/?$/, '/status');
+  statusURL.search = '';
+  statusURL.hash = '';
+  const refreshButton = byId('refresh');
+  const interval = byId('interval');
+  let timer = null;
+  let controller = null;
+  let disposed = false;
+  const clearTimer = () => { if (timer !== null) clearTimeout(timer); timer = null; };
+  function schedule() {
+    clearTimer();
+    const delay = Number(interval.value);
+    if (!disposed && !document.hidden && delay > 0) timer = setTimeout(refresh, delay);
+  }
+  async function refresh() {
+    if (disposed || document.hidden || controller) return;
+    clearTimer();
+    const request = new AbortController();
+    controller = request;
+    refreshButton.disabled = true;
+    text('refresh', '刷新中…');
+    try {
+      const response = await fetch(statusURL.href, { cache: 'no-store', credentials: 'same-origin', signal: request.signal });
+      if (!response.ok) throw new Error('Status unavailable');
+      const data = await response.json();
+      if (!disposed && !request.signal.aborted) {
+        render(data);
+        byId('error').hidden = true;
+      }
+    } catch (error) {
+      if (!disposed && !request.signal.aborted) {
+        byId('error').hidden = false;
+        text('updated', '刷新失败 · 等待重试');
+      }
+    } finally {
+      if (controller === request) controller = null;
+      refreshButton.disabled = false;
+      text('refresh', '立即刷新');
+      schedule();
+    }
+  }
+  refreshButton.addEventListener('click', refresh);
+  interval.addEventListener('change', schedule);
+  byId('appearance').value = monitorTheme.get();
+  byId('appearance').disabled = monitorTheme.embedded;
+  byId('appearance').addEventListener('change', event => monitorTheme.set(event.target.value));
+  document.addEventListener('visibilitychange', () => {
+    clearTimer();
+    if (document.hidden) { if (controller) controller.abort(); }
+    else refresh();
+  });
+  window.addEventListener('pagehide', () => { disposed = true; clearTimer(); if (controller) controller.abort(); });
+  window.addEventListener('pageshow', () => { if (disposed) { disposed = false; refresh(); } });
+  refresh();
+})();
+</script>
+</body>
+</html>

@@ -6,13 +6,13 @@ system 内容搬入普通 user 消息。覆盖 Antigravity 提供的 Gemini 和 
 
 ## 接入方式
 
-插件只注册 `request_normalizer`，实现 `request.normalize`。CPA 先完成账户选择和
+插件注册 `request_normalizer` 和只读资源能力 `management_api`。CPA 先完成账户选择和
 入口协议转换，插件再检查 `ToFormat == antigravity`，处理统一结构中的
 `request.systemInstruction.parts` 和 `request.contents`。
 
 不修改 CPA 主程序，不注册调度器，不调用上游，也不读取账户凭据。可以与
 `cpa-plugin-limit` 同时启用，保留其 `capacity-aware` 调度、限频和并发控制。
-原生 ABI 为 1，JSON RPC schema 为 1；直接实现稳定的轻量协议，无需引入整个 CPA
+原生 ABI 为 1，JSON RPC schema 为 6；直接实现稳定的轻量协议，无需引入整个 CPA
 Go 模块。配置表单和构建发布流程参考 `cpa-plugin-limit`。
 
 ## 配置
@@ -46,6 +46,31 @@ plugins:
 限制。模型或模式留空恢复默认值。`enabled`、`priority` 为 CPA 原有控制字段。
 配置通过 CPA 既有机制应用；无效配置不会覆盖上一份有效配置。
 
+## 监控页面
+
+在 CPA 插件资源菜单打开 **Antigravity 搬移监控**，也可以直接访问：
+
+```text
+/v0/resource/plugins/cpa-plugin-gemini/ui
+/v0/resource/plugins/cpa-plugin-gemini/status
+```
+
+页面展示处理、搬移、跳过累计次数，搬移及跳过原因，当前实际生效配置、版本和运行
+时间。默认每 5 秒刷新，可手动刷新、切换间隔或关闭自动刷新；页面隐藏时暂停，失败
+时保留上次数据。嵌入 CPA 时沿用宿主主题，独立打开支持羊毛纸、纯白、暗色及自动
+主题。页面已嵌入原生库，不依赖 CDN。
+
+统计口径为 **Antigravity 已完成的 normalizer 回调**，始终满足“处理 = 搬移 + 跳过”。
+其他供应商、监控访问，以及无法辨识目标的无效 RPC 不计数。跳过包含条件不匹配、
+关闭/暂停、不支持的结构、无效请求体及处理异常。重试或重复转换可能多次计数，
+不是客户端独立请求数或计费次数。配置重载保留计数；实例重建或 CPA 重启后归零。
+没有清零或写配置接口。
+
+仅保留累计计数和时间戳，不保存或返回请求正文、提示词、实际请求模型、账户、API Key、
+请求头或请求 ID。自定义触发词只显示数量，不返回词条原文。资源接口沿用 CPA 的
+免管理鉴权机制，仅暴露脱敏的配置视图。宿主需支持 RPC schema 6+，以原样返回 JSON
+配置字符串，避免旧版的 HTML 转义改变模型过滤表达式。
+
 ## 内容保留和限制
 
 - 复制原始文本块及受支持的缓存元数据，不压平成字符串。已有 user 的文本、图片和
@@ -65,13 +90,14 @@ plugins:
 
 ## 构建和验证
 
-需要 Go 1.26+ 及 C 编译器：
+需要 Go 1.26+ 及 C 编译器；无依赖的监控交互测试需要 Node.js 18+：
 
 ```sh
 gofmt -w .
 go vet ./...
 go test -race ./...
 python3 -m unittest discover -s scripts -p 'test_release_version.py' -v
+node --test scripts/test_monitor_ui.cjs
 mkdir -p build
 CGO_ENABLED=1 go build -buildmode=c-shared -o build/cpa-plugin-gemini.so .
 python3 scripts/smoke_native.py build/cpa-plugin-gemini.so
@@ -80,7 +106,7 @@ python3 scripts/smoke_native.py build/cpa-plugin-gemini.so
 macOS 将最后两条命令的扩展名改为 `.dylib`。必须在 CPA 对应的操作系统和架构构建，
 只改扩展名不能得到其他平台产物。单元测试及 ABI 冒烟测试均不连接上游，覆盖供应商
 隔离、多入口的已转换请求结构、文本/图片/工具保留、精度、Unicode、配置并发重载、
-重复处理和缓冲区校验；不替代 CPA 翻译器测试或真实上游验证。
+重复处理、监控计数一致性与隐私、页面刷新交互和缓冲区校验；不替代 CPA 翻译器测试或真实上游验证。
 
 ## 发布和安装
 

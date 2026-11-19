@@ -61,13 +61,13 @@ func normalizeTest(t *testing.T, p *plugin, to, model, from string, body []byte,
 	return out, true
 }
 
-func TestRegistrationAdvertisesOnlyNormalizer(t *testing.T) {
+func TestRegistrationAdvertisesNormalizerAndMonitor(t *testing.T) {
 	result := callTest(t, newPlugin(), "plugin.register", ojson.NewDocString(`{"schema_version":10}`))
-	if result.Get("metadata.Name").String() != pluginName || result.Get("metadata.Version").String() != pluginVersion || result.Get("schema_version").Int() != 1 {
+	if result.Get("metadata.Name").String() != pluginName || result.Get("metadata.Version").String() != pluginVersion || result.Get("schema_version").Int() != 6 {
 		t.Fatalf("unexpected registration: %s", result.Raw)
 	}
 	capabilities := result.Get("capabilities").Map()
-	if len(capabilities) != 1 || !capabilities["request_normalizer"].Bool() {
+	if len(capabilities) != 2 || !capabilities["request_normalizer"].Bool() || !capabilities["management_api"].Bool() {
 		t.Fatalf("unexpected capabilities: %v", capabilities)
 	}
 	fields := map[string]ojson.Result{}
@@ -142,6 +142,7 @@ func TestRPCValidationAndPrivacy(t *testing.T) {
 	p := newPlugin()
 	for _, tc := range []struct{ method, body string }{
 		{"unknown", `{}`}, {"plugin.register", `[]`}, {"plugin.register", `{`},
+		{"plugin.register", `{}`}, {"plugin.register", `{"schema_version":5}`},
 		{"plugin.register", `{"schema_version":0}`}, {"plugin.register", `{"schema_version":"10"}`},
 		{"plugin.register", `{"schema_version":1.5}`},
 		{"plugin.register", `{"config_yaml":"not base64"}`}, {"plugin.register", `{"config_yaml":42}`},
@@ -170,7 +171,7 @@ func TestRPCValidationAndPrivacy(t *testing.T) {
 func TestConcurrentReconfigureAndNormalize(t *testing.T) {
 	p := newPlugin()
 	request := normalizationTestRequest(t, "antigravity", "gemini-example", "gemini", []byte(exampleBody), true).Bytes()
-	cfg := ojson.NewDocString(`{}`)
+	cfg := ojson.NewDocString(`{"schema_version":10}`)
 	setTest(t, cfg, "config_yaml", base64.StdEncoding.EncodeToString([]byte("mode: always")))
 	configuration := cfg.Bytes()
 	var workers sync.WaitGroup

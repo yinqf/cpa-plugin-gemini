@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "plugins": [
+    {
+      "id": "cpa-plugin-gemini",
+      "name": "cpa-plugin-gemini",
+      "description": "Relocate textual system content in translated Antigravity requests, with provider isolation and raw content preservation.",
+      "author": "yinqf",
+      "repository": "https://github.com/yinqf/cpa-plugin-gemini",
+      "homepage": "https://github.com/yinqf/cpa-plugin-gemini",
+      "tags": ["antigravity", "gemini", "claude", "request-normalizer"],
+      "auth_required": true
+    }
+  ]
+}

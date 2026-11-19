@@ -1,0 +1,8 @@
+/build/
+/dist/
+*.dylib
+*.so
+*.dll
+/cpa-plugin-gemini.h
+__pycache__/
+*.py[cod]

@@ -82,6 +82,32 @@ func TestRegistrationAdvertisesNormalizerAndMonitor(t *testing.T) {
 	}
 }
 
+func TestRegistrationAndReconfigureWithStoreManifest(t *testing.T) {
+	p := newPlugin()
+	const manifest = `
+store:
+  id: cpa-plugin-gemini
+  version: 0.0.3
+  release-tag: v0.0.3
+  source-url: https://example.com/registry.json
+  install:
+    type: github-release
+  future-metadata:
+    keep_max_chars: opaque
+`
+	req := ojson.NewDocString(`{"schema_version":10}`)
+	setTest(t, req, "config_yaml", base64.StdEncoding.EncodeToString([]byte("enabled: true\npriority: 2\nmode: always\n"+manifest)))
+	callTest(t, p, "plugin.register", req)
+	if cfg := p.config.Load(); !cfg.Enabled || cfg.Priority != 2 || cfg.Mode != modeAlways {
+		t.Fatalf("registration did not apply plugin settings: %+v", cfg)
+	}
+
+	configureTest(t, p, "enabled: true\nmode: off\n"+manifest)
+	if cfg := p.config.Load(); !cfg.Enabled || cfg.Mode != modeOff {
+		t.Fatalf("reconfiguration did not apply plugin settings: %+v", cfg)
+	}
+}
+
 func TestOnlyAntigravityIsChanged(t *testing.T) {
 	p := newPlugin()
 	configureTest(t, p, "mode: always")

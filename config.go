@@ -34,10 +34,14 @@ func defaultConfig() config {
 }
 
 func parseConfig(data []byte) (config, error) {
-	cfg := defaultConfig()
+	// CPA passes its store manifest alongside the plugin settings.
+	input := struct {
+		config `yaml:",inline"`
+		Store  yaml.Node `yaml:"store"`
+	}{config: defaultConfig()}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
-	if errDecode := decoder.Decode(&cfg); errDecode != nil && errDecode != io.EOF {
+	if errDecode := decoder.Decode(&input); errDecode != nil && errDecode != io.EOF {
 		return config{}, fmt.Errorf("decode plugin configuration: %w", errDecode)
 	}
 	var extra yaml.Node
@@ -58,6 +62,7 @@ func parseConfig(data []byte) (config, error) {
 			return config{}, errNumeric
 		}
 	}
+	cfg := input.config
 	if cfg.KeepMaxChars < 0 || cfg.KeepMaxChars > 1_000_000 {
 		return config{}, fmt.Errorf("keep_max_chars must be between 0 and 1000000")
 	}
@@ -100,8 +105,13 @@ func validateIntegerNodes(node *yaml.Node, visited map[*yaml.Node]bool) error {
 	visited[node] = true
 	if node.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(node.Content); i += 2 {
-			if node.Content[i].Value == "keep_max_chars" {
-				value := node.Content[i+1]
+			value := node.Content[i+1]
+			switch node.Content[i].Value {
+			case "<<":
+				if errMerge := validateIntegerNodes(value, visited); errMerge != nil {
+					return errMerge
+				}
+			case "keep_max_chars":
 				if value.Kind == yaml.AliasNode {
 					value = value.Alias
 				}
@@ -110,10 +120,11 @@ func validateIntegerNodes(node *yaml.Node, visited map[*yaml.Node]bool) error {
 				}
 			}
 		}
-	}
-	for _, child := range node.Content {
-		if errChild := validateIntegerNodes(child, visited); errChild != nil {
-			return errChild
+	} else if node.Kind == yaml.SequenceNode {
+		for _, child := range node.Content {
+			if errChild := validateIntegerNodes(child, visited); errChild != nil {
+				return errChild
+			}
 		}
 	}
 	return validateIntegerNodes(node.Alias, visited)
